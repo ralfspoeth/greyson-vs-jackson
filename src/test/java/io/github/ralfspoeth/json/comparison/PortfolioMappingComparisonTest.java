@@ -48,8 +48,14 @@ class PortfolioMappingComparisonTest {
 
     record Instrument(String isin, String name, Currency ccy, Quotation quotation) {}
 
-    record Position(Instrument instrument, long amount, BigDecimal valueLocal, BigDecimal valueRef,
-                    double percentage) {}
+    record Position(Instrument instrument, long amount,
+                    BigDecimal valueLocal, Currency localCcy,
+                    BigDecimal valueRef, double percentage) {
+        Position {
+            valueLocal = valueLocal.stripTrailingZeros();
+            valueRef = valueRef.stripTrailingZeros();
+        }
+    }
 
     record Portfolio(String id, String name, Currency refCcy, List<Position> positions) {}
 
@@ -61,7 +67,7 @@ class PortfolioMappingComparisonTest {
             {
               "generatedAt": "2026-06-29T10:00:00Z",
               "source": "custody-system",
-              "page": {"index": 0, "size": 50, "total": 2},
+              "page": {"index": 0, "size": 50, "total": 3},
               "warnings": [],
               "data": {
                 "asOf": "2026-06-28",
@@ -74,7 +80,8 @@ class PortfolioMappingComparisonTest {
                     "positions": [
                       {"instrument": {"isin": "US0378331005", "name": "Apple",
                                       "ccy": "USD", "sector": "Tech"},
-                       "amount": 100, "valueLocal": 18250.00, "valueRef": 16900.00, "percentage": 74.5},
+                       "amount": 100, "valueLocal": 18250.00, "ccy":"USD"
+                       , "valueRef": 16900.00, "percentage": 74.5},
                       {"instrument": {"isin": "DE0005140008", "ccy": "EUR"},
                        "amount": 500, "valueRef": 6250.00, "percentage": 25.5}
                     ]
@@ -86,6 +93,23 @@ class PortfolioMappingComparisonTest {
                       {"instrument": {"isin": "US912828U816", "name": "UST 2.25 2027",
                                       "ccy": "USD", "quotation": "%"},
                        "amount": 1000000, "valueRef": 921000.00, "percentage": 100.0}
+                    ]
+                  },
+                  {
+                    "id": "PF-3",
+                    "name": "Multi",
+                    "refCcy": "USD",
+                    "positions": [
+                      {"instrument": {"isin": "US1", "name": "AlphaCorp", "ccy": "USD"},
+                       "amount": 10, "valueRef": 1000.00, "percentage": 20.0},
+                      {"instrument": {"isin": "DE1", "name": "BetaAG", "ccy": "EUR"},
+                       "amount": 20, "valueLocal": 2000.00, "valueRef": 2200.00, "percentage": 20.0},
+                      {"instrument": {"isin": "GB1", "name": "GammaPlc", "ccy": "GBP"},
+                       "amount": 30, "valueLocal": 3000.00, "localCcy": "GBP", "valueRef": 3500.00, "percentage": 20.0},
+                      {"instrument": {"isin": "JP1", "name": "DeltaKK", "ccy": "JPY"},
+                       "amount": 40, "valueLocal": 400000.00, "localCcy": "USD", "valueRef": 2700.00, "percentage": 20.0},
+                      {"instrument": {"isin": "CH1", "name": "EpsilonSA", "ccy": "CHF", "quotation": "%"},
+                       "amount": 50, "valueLocal": 5000.00, "localCcy": "CHF", "valueRef": 5400.00, "percentage": 20.0}
                     ]
                   }
                 ]
@@ -102,49 +126,57 @@ class PortfolioMappingComparisonTest {
     // ====================================================================
 
     static List<Portfolio> greysonPortfolios(String source) throws IOException {
+        // Only the pointers reused more than once get a name; single-use ones
+        // are inlined at their call site below.
         var root = Pointer.self();
         var idPtr = root.member("id");
-        var namePtr = root.member("name");                 // portfolio name
         var refCcyPtr = root.member("refCcy");
-        var amountPtr = root.member("amount");
-        var valueLocalPtr = root.member("valueLocal");
         var valueRefPtr = root.member("valueRef");
-        var percentagePtr = root.member("percentage");
-        // Instrument-relative pointers, extended from instrumentPtr so each
-        // applies straight to a position node — no repeated instrument lookup.
         var instrumentPtr = root.member("instrument");
         var isinPtr = instrumentPtr.member("isin");
-        var insNamePtr = instrumentPtr.member("name");
-        var ccyPtr = instrumentPtr.member("ccy");
-        var quotationPtr = instrumentPtr.member("quotation");
+        var insCcyPtr = instrumentPtr.member("ccy");
 
         return Greyson.readValue(Reader.of(source))
                 .stream()
                 .flatMap(root.member("data").member("portfolios").select(all()))
                 .map(pf -> new Portfolio(
                         idPtr.stringOrThrow(pf),
-                        namePtr.stringValue(pf).orElse(idPtr.stringOrThrow(pf)),       // default: the id
+                        root.member("name").stringValue(pf).orElse(idPtr.stringOrThrow(pf)),    // default: the id
                         Currency.getInstance(refCcyPtr.stringOrThrow(pf)),
                         pf.get("positions").stream()
                                 .flatMap(all())
                                 .map(pos -> new Position(
                                         new Instrument(
                                                 isinPtr.stringOrThrow(pos),
-                                                insNamePtr.stringValue(pos).orElse(isinPtr.stringOrThrow(pos)), // default: the isin
-                                                Currency.getInstance(ccyPtr.stringOrThrow(pos)),
-                                                quotationPtr.stringValue(pos)
+                                                // default: the isin
+                                                instrumentPtr.member("name")
+                                                        .stringValue(pos)
+                                                        .or(() -> isinPtr.stringValue(pos))
+                                                        .orElseThrow(),
+                                                insCcyPtr.stringValue(pos).
+                                                        map(Currency::getInstance)
+                                                        .orElseThrow(),
+                                                // "%" -> PERCENT, else PCS
+                                                instrumentPtr.member("quotation")
+                                                        .stringValue(pos)
                                                         .filter("%"::equals)
-                                                        .map(q -> Quotation.PERCENT)
-                                                        .orElse(Quotation.PCS)),                                // "%" -> PERCENT, else PCS
-                                        amountPtr.longOrThrow(pos),
-                                        valueLocalPtr.decimalValue(pos)                                       // default: valueRef when ccy == refCcy
-                                                .or(() -> ccyPtr.stringOrThrow(pos).equals(refCcyPtr.stringOrThrow(pf))
+                                                        .map(_ -> Quotation.PERCENT)
+                                                        .orElse(Quotation.PCS)
+                                        ),
+                                        root.member("amount").longOrThrow(pos),
+                                        // default: valueRef when ccy == refCcy
+                                        root.member("valueLocal").decimalValue(pos)
+                                                .or(() -> insCcyPtr.stringOrThrow(pos).equals(refCcyPtr.stringOrThrow(pf))
                                                         ? valueRefPtr.decimalValue(pos)
                                                         : Optional.empty())
-                                                .orElseThrow(() -> new NoSuchElementException(
-                                                        "valueLocal missing for " + isinPtr.stringOrThrow(pos))),
+                                                .orElseThrow(),
+                                        // default: instrument ccy
+                                        root.member("localCcy").stringValue(pos)
+                                                .or(() -> insCcyPtr.stringValue(pos))
+                                                .map(Currency::getInstance)
+                                                .orElseThrow(),
                                         valueRefPtr.decimalOrThrow(pos),
-                                        percentagePtr.doubleOrThrow(pos)))
+                                        root.member("percentage").doubleOrThrow(pos)))
                                 .toList()))
                 .toList();
     }
@@ -184,7 +216,11 @@ class PortfolioMappingComparisonTest {
         } else {
             throw new NoSuchElementException("valueLocal missing for " + instrument.isin());
         }
-        return new Position(instrument, n.get("amount").asLong(), valueLocal, valueRef,
+        JsonNode localCcy = n.get("localCcy");
+        Currency ccy = (localCcy != null && !localCcy.isNull())
+                ? Currency.getInstance(localCcy.asText())
+                : instrument.ccy();                 // default: instrument ccy
+        return new Position(instrument, n.get("amount").asLong(), valueLocal, ccy, valueRef,
                 n.get("percentage").asDouble());
     }
 
@@ -220,11 +256,11 @@ class PortfolioMappingComparisonTest {
         var jackson = jacksonPortfolios(DOC);
 
         assertAll(
-                () -> assertEquals(2, greyson.size()),
-                // Greyson's JsonNumber strips trailing zeros (18250.00 -> 1.825E+4),
-                // while Jackson preserves the literal scale; compare numerically by
-                // normalizing both sides' BigDecimals.
-                () -> assertEquals(normalize(greyson), normalize(jackson)),
+                () -> assertEquals(3, greyson.size()),
+                // Position's constructor strips trailing zeros on both sides, so
+                // the record graphs compare equal directly — Greyson's normalized
+                // scale and Jackson's literal scale converge at construction.
+                () -> assertEquals(greyson, jackson),
                 () -> assertEquals("Growth", greyson.getFirst().name()),
                 () -> assertEquals("PF-2", greyson.get(1).name()),            // name defaulted to id
                 () -> {
@@ -244,29 +280,22 @@ class PortfolioMappingComparisonTest {
                     var bond = greyson.get(1).positions().getFirst();
                     assertEquals(Quotation.PERCENT, bond.instrument().quotation()); // "%" -> PERCENT
                     assertEquals(bond.valueRef(), bond.valueLocal());               // fallback (USD==refCcy)
+                },
+                () -> assertEquals(5, greyson.get(2).positions().size()),
+                () -> {
+                    var pf3 = greyson.get(2);
+                    // localCcy defaults to the instrument ccy when absent
+                    assertEquals(Currency.getInstance("USD"), pf3.positions().getFirst().localCcy());
+                    assertEquals(Currency.getInstance("EUR"), pf3.positions().get(1).localCcy());
+                    // an explicit localCcy overrides — even when it differs from the instrument ccy
+                    assertEquals(Currency.getInstance("JPY"), pf3.positions().get(3).instrument().ccy());
+                    assertEquals(Currency.getInstance("USD"), pf3.positions().get(3).localCcy());
                 }
         );
     }
 
-    // Rebuild a portfolio list with every BigDecimal stripped of trailing zeros,
-    // so the two libraries' records compare equal despite Greyson normalizing
-    // numeric scale and Jackson preserving the JSON literal's.
-    private static List<Portfolio> normalize(List<Portfolio> portfolios) {
-        return portfolios.stream()
-                .map(p -> new Portfolio(p.id(), p.name(), p.refCcy(),
-                        p.positions().stream()
-                                .map(pos -> new Position(
-                                        pos.instrument(),
-                                        pos.amount(),
-                                        pos.valueLocal().stripTrailingZeros(),
-                                        pos.valueRef().stripTrailingZeros(),
-                                        pos.percentage()))
-                                .toList()))
-                .toList();
-    }
-
     @Test
-    void zeroPortfoliosWhenThereAreNone() throws IOException {
+    void zeroPortfoliosWhenThereAreNone() {
         var empty = """
                 {"source": "x", "data": {"portfolios": []}, "links": {}}
                 """;
