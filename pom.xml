@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.ralfspoeth</groupId>
+        <artifactId>plumbum</artifactId>
+        <version>2.0.8</version>
+    </parent>
+    <artifactId>greyson-vs-jackson</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Greyson vs Jackson comparison</name>
+    <description>
+        A standalone, non-published module that runs the same schema-less JSON
+        tasks with Greyson and with Jackson, side by side. Jackson is pulled in
+        ONLY here, so the core 'json' module keeps its zero-dependency footprint
+        and clean CVE surface. This module is not part of the 'json' build and
+        is never released to Maven Central.
+    </description>
+
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <greyson.version>1.5.0-SNAPSHOT</greyson.version>
+        <jackson.version>2.18.2</jackson.version>
+        <junit.version>6.1.1</junit.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- The library under comparison; run `mvn install` in ../ first so this
+             SNAPSHOT is in your local repository. -->
+        <dependency>
+            <groupId>io.github.ralfspoeth</groupId>
+            <artifactId>json</artifactId>
+            <version>${greyson.version}</version>
+        </dependency>
+
+        <!-- The only place Jackson appears anywhere in the project. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+            <!-- `mvn versions:display-dependency-updates` and
+                 `versions:display-plugin-updates` keep jackson.version,
+                 junit.version, and the plugin versions current. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>versions-maven-plugin</artifactId>
+                <version>2.18.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
