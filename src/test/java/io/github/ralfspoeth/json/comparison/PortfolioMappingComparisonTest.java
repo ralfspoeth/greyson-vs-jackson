@@ -312,8 +312,13 @@ class PortfolioMappingComparisonTest {
         Currency ccy = (localCcy != null && !localCcy.isJsonNull())
                 ? Currency.getInstance(localCcy.getAsString())
                 : instrument.ccy();                 // default: instrument ccy
-        return new Position(instrument, n.get("amount").getAsLong(), valueLocal, ccy, valueRef,
-                n.get("percentage").getAsDouble());
+        return new Position(instrument,
+                n.get("amount").getAsLong(),
+                valueLocal,
+                ccy,
+                valueRef,
+                n.get("percentage").getAsDouble()
+        );
     }
 
     static Portfolio gsonPortfolio(JsonObject n) {
@@ -334,7 +339,8 @@ class PortfolioMappingComparisonTest {
                 id,
                 (name != null && !name.isJsonNull()) ? name.getAsString() : id,
                 refCcy,
-                list);
+                list
+        );
     }
 
     static List<Portfolio> gsonPortfolios(String json) {
@@ -350,7 +356,7 @@ class PortfolioMappingComparisonTest {
     // ====================================================================
 
     @Test
-    void bothMapTheSamePortfolios() throws IOException {
+    void allMapToTheSameListOfPortfolios() throws IOException {
         var greyson = greysonPortfolios(DOC);
         var jackson = jacksonPortfolios(DOC);
         var gson = gsonPortfolios(DOC);
