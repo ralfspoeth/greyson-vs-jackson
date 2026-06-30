@@ -8,15 +8,15 @@
         <artifactId>plumbum</artifactId>
         <version>2.0.8</version>
     </parent>
-    <artifactId>greyson-vs-jackson</artifactId>
+    <artifactId>greyson-competition</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>Greyson vs Jackson comparison</name>
+    <name>Greyson competition</name>
     <description>
         A standalone, non-published module that runs the same schema-less JSON
-        tasks with Greyson and with Jackson, side by side. Jackson is pulled in
-        ONLY here, so the core 'json' module keeps its zero-dependency footprint
+        tasks with Greyson, Jackson, and Gson, side by side. Jackson and Gson are
+        pulled in ONLY here, so the core 'json' module keeps its zero-dependency footprint
         and clean CVE surface. This module is not part of the 'json' build and
         is never released to Maven Central.
     </description>
@@ -45,11 +45,17 @@
             <version>1.6.0</version>
         </dependency>
 
-        <!-- The only place Jackson appears anywhere in the project. -->
+        <!-- Jackson and Gson appear only here — the two tree+binding libraries
+             compared against Greyson. -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.22.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.11.0</version>
         </dependency>
 
         <dependency>

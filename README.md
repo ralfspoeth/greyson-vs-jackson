@@ -1,12 +1,12 @@
-# greyson-vs-jackson
+# greyson-competition
 
-A standalone module that runs the same schema-less JSON tasks with **Greyson**
-and with **Jackson**, side by side, so the comparison is executable rather than
-rhetorical.
+A standalone module that runs the same schema-less JSON tasks with **Greyson**,
+**Jackson**, and **Gson**, side by side, so the comparison is executable rather
+than rhetorical.
 
 It is deliberately **not** part of the `json` build and is **never** published.
-Jackson appears only here, so the core `json` module keeps its zero-dependency
-footprint and clean CVE surface.
+Jackson and Gson appear only here, so the core `json` module keeps its
+zero-dependency footprint and clean CVE surface.
 
 ## What it shows
 
@@ -24,17 +24,21 @@ update models: Greyson's `Pointer.with` is immutable by construction and shares
 off-path subtrees, whereas Jackson requires an explicit full `deepCopy()` to
 avoid mutating the shared original.
 
+`PortfolioMappingComparisonTest` goes wider: it maps a noisy portfolio document
+into a record graph (`Portfolio`/`Position`/`Instrument`) three ways — with
+**Greyson**, **Jackson**, and **Gson** — and asserts all three produce equal
+graphs. Its mapping rules (a coded `"%"` enum, field-derived `name`/`localCcy`
+defaults, a context-dependent `valueLocal`, and array-or-single `positions`)
+all fall outside reflective binding, so the Jackson and Gson versions both drop
+to hand-rolled tree walks while Greyson stays explicit pointer/stream code.
+
 ## Running it
 
-This module depends on `io.github.ralfspoeth:json:1.4.0-SNAPSHOT`, so install
-the library into your local repository first:
+This module depends on the released `io.github.ralfspoeth:json:1.6.0`, so it
+resolves straight from Maven Central:
 
 ```sh
-# from the repository root (the 'json' module)
-mvn install -DskipTests
-
-# then run the comparison
-cd greyson-vs-jackson
+cd greyson-competition
 mvn test
 ```
 

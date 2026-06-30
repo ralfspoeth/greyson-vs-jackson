@@ -3,8 +3,11 @@ package io.github.ralfspoeth.json.comparison;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.github.ralfspoeth.json.Greyson;
-import io.github.ralfspoeth.json.query.Pointer;
+import static io.github.ralfspoeth.json.query.Pointer.self;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -29,7 +32,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *   <li>{@code Instrument.name} / {@code Portfolio.name} are required, defaulting
  *       to the {@code isin} / {@code id} when absent (a field-derived default);</li>
  *   <li>{@code quotation} is the literal {@code "%"} → {@link Quotation#PERCENT},
- *       or absent → {@link Quotation#PCS} (a coded value, not an enum name).</li>
+ *       or absent → {@link Quotation#PCS} (a coded value, not an enum name);</li>
+ *   <li>{@code Position.localCcy} is optional and defaults to the instrument's
+ *       {@code ccy} when absent (another field-derived default);</li>
+ *   <li>{@code positions} may be a JSON array <em>or</em> a single bare object —
+ *       Greyson's {@code Selector.all()} accepts either, whereas the Jackson walk
+ *       needs an explicit array-vs-object branch ({@code for}-each over an
+ *       {@code ObjectNode} iterates its field values, not the object).</li>
  * </ul>
  *
  * <p>In Greyson these are ordinary expressions in an explicit mapper. Jackson's
@@ -39,6 +48,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * the whole graph by hand from {@code JsonNode}. At that point Jackson is just a
  * parser, and a more awkward one here: nullable {@code get(...)}, manual
  * {@code decimalValue()}, no {@code Optional} or typed accessors.</p>
+ *
+ * <p>Gson is in the same position: {@code gsonPortfolios} maps its
+ * {@code JsonElement} tree by hand for the same reasons, so all three libraries
+ * are compared on the identical document and asserted to produce equal graphs.</p>
  */
 class PortfolioMappingComparisonTest {
 
@@ -67,7 +80,7 @@ class PortfolioMappingComparisonTest {
             {
               "generatedAt": "2026-06-29T10:00:00Z",
               "source": "custody-system",
-              "page": {"index": 0, "size": 50, "total": 3},
+              "page": {"index": 0, "size": 50, "total": 4},
               "warnings": [],
               "data": {
                 "asOf": "2026-06-28",
@@ -111,6 +124,13 @@ class PortfolioMappingComparisonTest {
                       {"instrument": {"isin": "CH1", "name": "EpsilonSA", "ccy": "CHF", "quotation": "%"},
                        "amount": 50, "valueLocal": 5000.00, "localCcy": "CHF", "valueRef": 5400.00, "percentage": 20.0}
                     ]
+                  },
+                  {
+                    "id": "PF-4",
+                    "name": "Single",
+                    "refCcy": "USD",
+                    "positions": {"instrument": {"isin": "US9", "name": "ZetaInc", "ccy": "USD"},
+                                  "amount": 5, "valueRef": 500.00, "percentage": 100.0}
                   }
                 ]
               },
@@ -128,20 +148,19 @@ class PortfolioMappingComparisonTest {
     static List<Portfolio> greysonPortfolios(String source) throws IOException {
         // Only the pointers reused more than once get a name; single-use ones
         // are inlined at their call site below.
-        var root = Pointer.self();
-        var idPtr = root.member("id");
-        var refCcyPtr = root.member("refCcy");
-        var valueRefPtr = root.member("valueRef");
-        var instrumentPtr = root.member("instrument");
+        var idPtr = self().member("id");
+        var refCcyPtr = self().member("refCcy");
+        var valueRefPtr = self().member("valueRef");
+        var instrumentPtr = self().member("instrument");
         var isinPtr = instrumentPtr.member("isin");
         var insCcyPtr = instrumentPtr.member("ccy");
 
         return Greyson.readValue(Reader.of(source))
                 .stream()
-                .flatMap(root.member("data").member("portfolios").select(all()))
+                .flatMap(self().member("data").member("portfolios").select(all()))
                 .map(pf -> new Portfolio(
                         idPtr.stringOrThrow(pf),
-                        root.member("name").stringValue(pf).orElse(idPtr.stringOrThrow(pf)),    // default: the id
+                        self().member("name").stringValue(pf).orElse(idPtr.stringOrThrow(pf)),    // default: the id
                         Currency.getInstance(refCcyPtr.stringOrThrow(pf)),
                         pf.get("positions").stream()
                                 .flatMap(all())
@@ -163,22 +182,24 @@ class PortfolioMappingComparisonTest {
                                                         .map(_ -> Quotation.PERCENT)
                                                         .orElse(Quotation.PCS)
                                         ),
-                                        root.member("amount").longOrThrow(pos),
+                                        self().member("amount").longOrThrow(pos),
                                         // default: valueRef when ccy == refCcy
-                                        root.member("valueLocal").decimalValue(pos)
+                                        self().member("valueLocal")
+                                                .decimalValue(pos)
                                                 .or(() -> insCcyPtr.stringOrThrow(pos).equals(refCcyPtr.stringOrThrow(pf))
                                                         ? valueRefPtr.decimalValue(pos)
                                                         : Optional.empty())
                                                 .orElseThrow(),
                                         // default: instrument ccy
-                                        root.member("localCcy").stringValue(pos)
+                                        self().member("localCcy").stringValue(pos)
                                                 .or(() -> insCcyPtr.stringValue(pos))
                                                 .map(Currency::getInstance)
                                                 .orElseThrow(),
                                         valueRefPtr.decimalOrThrow(pos),
-                                        root.member("percentage").doubleOrThrow(pos)))
-                                .toList()))
-                .toList();
+                                        self().member("percentage").doubleOrThrow(pos))
+                                ).toList()
+                        )
+                ).toList();
     }
 
 
@@ -228,9 +249,17 @@ class PortfolioMappingComparisonTest {
         Currency refCcy = Currency.getInstance(n.get("refCcy").asText());
         JsonNode name = n.get("name");
         String id = n.get("id").asText();
+        JsonNode positionsNode = n.get("positions");
         List<Position> positions = new ArrayList<>();
-        for (JsonNode p : n.get("positions")) {
-            positions.add(jacksonPosition(p, refCcy));
+        // Greyson's Selector.all() treats a lone object as a one-element stream;
+        // a Jackson for-each over an ObjectNode iterates its field values instead,
+        // so the single-vs-array distinction needs an explicit branch here.
+        if (positionsNode != null && positionsNode.isArray()) {
+            for (JsonNode p : positionsNode) {
+                positions.add(jacksonPosition(p, refCcy));
+            }
+        } else if (positionsNode != null && !positionsNode.isNull()) {
+            positions.add(jacksonPosition(positionsNode, refCcy));
         }
         return new Portfolio(
                 id,
@@ -249,18 +278,90 @@ class PortfolioMappingComparisonTest {
     }
 
     // ====================================================================
+    //  Gson: same story as Jackson — the "%" code, the field-derived name and
+    //  localCcy defaults, and the array-or-object positions all sit outside
+    //  reflective binding, so the graph is mapped by hand over Gson's
+    //  JsonElement tree. get(name) returns null when absent; getAsBigDecimal
+    //  keeps the literal scale (Position then strips it, as on the other sides).
+    // ====================================================================
+
+    static Instrument gsonInstrument(JsonObject n) {
+        String isin = n.get("isin").getAsString();
+        JsonElement name = n.get("name");
+        JsonElement q = n.get("quotation");
+        return new Instrument(
+                isin,
+                (name != null && !name.isJsonNull()) ? name.getAsString() : isin,
+                Currency.getInstance(n.get("ccy").getAsString()),
+                (q != null && !q.isJsonNull() && "%".equals(q.getAsString())) ? Quotation.PERCENT : Quotation.PCS);
+    }
+
+    static Position gsonPosition(JsonObject n, Currency refCcy) {
+        Instrument instrument = gsonInstrument(n.getAsJsonObject("instrument"));
+        BigDecimal valueRef = n.get("valueRef").getAsBigDecimal();
+        JsonElement local = n.get("valueLocal");
+        BigDecimal valueLocal;
+        if (local != null && !local.isJsonNull()) {
+            valueLocal = local.getAsBigDecimal();
+        } else if (instrument.ccy().equals(refCcy)) {
+            valueLocal = valueRef;
+        } else {
+            throw new NoSuchElementException("valueLocal missing for " + instrument.isin());
+        }
+        JsonElement localCcy = n.get("localCcy");
+        Currency ccy = (localCcy != null && !localCcy.isJsonNull())
+                ? Currency.getInstance(localCcy.getAsString())
+                : instrument.ccy();                 // default: instrument ccy
+        return new Position(instrument, n.get("amount").getAsLong(), valueLocal, ccy, valueRef,
+                n.get("percentage").getAsDouble());
+    }
+
+    static Portfolio gsonPortfolio(JsonObject n) {
+        Currency refCcy = Currency.getInstance(n.get("refCcy").getAsString());
+        JsonElement name = n.get("name");
+        String id = n.get("id").getAsString();
+        JsonElement positions = n.get("positions");
+        List<Position> list = new ArrayList<>();
+        // Same single-vs-array branch the Jackson side needs.
+        if (positions != null && positions.isJsonArray()) {
+            for (JsonElement p : positions.getAsJsonArray()) {
+                list.add(gsonPosition(p.getAsJsonObject(), refCcy));
+            }
+        } else if (positions != null && positions.isJsonObject()) {
+            list.add(gsonPosition(positions.getAsJsonObject(), refCcy));
+        }
+        return new Portfolio(
+                id,
+                (name != null && !name.isJsonNull()) ? name.getAsString() : id,
+                refCcy,
+                list);
+    }
+
+    static List<Portfolio> gsonPortfolios(String json) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        JsonElement portfolios = root.getAsJsonObject("data").get("portfolios");
+        List<Portfolio> result = new ArrayList<>();
+        for (JsonElement p : portfolios.getAsJsonArray()) {
+            result.add(gsonPortfolio(p.getAsJsonObject()));
+        }
+        return result;
+    }
+
+    // ====================================================================
 
     @Test
     void bothMapTheSamePortfolios() throws IOException {
         var greyson = greysonPortfolios(DOC);
         var jackson = jacksonPortfolios(DOC);
+        var gson = gsonPortfolios(DOC);
 
         assertAll(
-                () -> assertEquals(3, greyson.size()),
-                // Position's constructor strips trailing zeros on both sides, so
+                () -> assertEquals(4, greyson.size()),
+                // Position's constructor strips trailing zeros on all three sides, so
                 // the record graphs compare equal directly — Greyson's normalized
-                // scale and Jackson's literal scale converge at construction.
+                // scale and Jackson's/Gson's literal scale converge at construction.
                 () -> assertEquals(greyson, jackson),
+                () -> assertEquals(greyson, gson),
                 () -> assertEquals("Growth", greyson.getFirst().name()),
                 () -> assertEquals("PF-2", greyson.get(1).name()),            // name defaulted to id
                 () -> {
@@ -290,7 +391,11 @@ class PortfolioMappingComparisonTest {
                     // an explicit localCcy overrides — even when it differs from the instrument ccy
                     assertEquals(Currency.getInstance("JPY"), pf3.positions().get(3).instrument().ccy());
                     assertEquals(Currency.getInstance("USD"), pf3.positions().get(3).localCcy());
-                }
+                },
+                // PF-4's single position is not wrapped in an array
+                () -> assertEquals(1, greyson.get(3).positions().size()),
+                () -> assertEquals("ZetaInc",
+                        greyson.get(3).positions().getFirst().instrument().name())
         );
     }
 
@@ -301,7 +406,8 @@ class PortfolioMappingComparisonTest {
                 """;
         assertAll(
                 () -> assertEquals(List.of(), greysonPortfolios(empty)),
-                () -> assertEquals(List.of(), jacksonPortfolios(empty))
+                () -> assertEquals(List.of(), jacksonPortfolios(empty)),
+                () -> assertEquals(List.of(), gsonPortfolios(empty))
         );
     }
 }
