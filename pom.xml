@@ -24,9 +24,6 @@
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <greyson.version>1.5.0-SNAPSHOT</greyson.version>
-        <jackson.version>2.18.2</jackson.version>
-        <junit.version>6.1.1</junit.version>
     </properties>
 
     <dependencyManagement>
@@ -34,7 +31,7 @@
             <dependency>
                 <groupId>org.junit</groupId>
                 <artifactId>junit-bom</artifactId>
-                <version>${junit.version}</version>
+                <version>6.1.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -42,19 +39,17 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- The library under comparison; run `mvn install` in ../ first so this
-             SNAPSHOT is in your local repository. -->
         <dependency>
             <groupId>io.github.ralfspoeth</groupId>
             <artifactId>json</artifactId>
-            <version>${greyson.version}</version>
+            <version>1.6.0</version>
         </dependency>
 
         <!-- The only place Jackson appears anywhere in the project. -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
+            <version>2.22.0</version>
         </dependency>
 
         <dependency>
@@ -76,9 +71,6 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
             </plugin>
-            <!-- `mvn versions:display-dependency-updates` and
-                 `versions:display-plugin-updates` keep jackson.version,
-                 junit.version, and the plugin versions current. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>versions-maven-plugin</artifactId>

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.github.ralfspoeth.json.Greyson;
-import io.github.ralfspoeth.json.data.JsonValue;
 import io.github.ralfspoeth.json.query.Pointer;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import static io.github.ralfspoeth.json.query.Selector.all;
 import static org.junit.jupiter.api.Assertions.assertAll;
@@ -110,17 +110,17 @@ class PortfolioMappingComparisonTest {
         var valueLocalPtr = root.member("valueLocal");
         var valueRefPtr = root.member("valueRef");
         var percentagePtr = root.member("percentage");
-        // Instrument-relative pointers, resolved through "instrument" so each
+        // Instrument-relative pointers, extended from instrumentPtr so each
         // applies straight to a position node — no repeated instrument lookup.
         var instrumentPtr = root.member("instrument");
-        var isinPtr = instrumentPtr.resolve(root.member("isin"));
-        var insNamePtr = instrumentPtr.resolve(root.member("name"));
-        var ccyPtr = instrumentPtr.resolve(root.member("ccy"));
-        var quotationPtr = instrumentPtr.resolve(root.member("quotation"));
+        var isinPtr = instrumentPtr.member("isin");
+        var insNamePtr = instrumentPtr.member("name");
+        var ccyPtr = instrumentPtr.member("ccy");
+        var quotationPtr = instrumentPtr.member("quotation");
 
         return Greyson.readValue(Reader.of(source))
                 .stream()
-                .flatMap(root.member("data").resolve(root.member("portfolios")).select(all()))
+                .flatMap(root.member("data").member("portfolios").select(all()))
                 .map(pf -> new Portfolio(
                         idPtr.stringOrThrow(pf),
                         namePtr.stringValue(pf).orElse(idPtr.stringOrThrow(pf)),       // default: the id
@@ -137,15 +137,12 @@ class PortfolioMappingComparisonTest {
                                                         .map(q -> Quotation.PERCENT)
                                                         .orElse(Quotation.PCS)),                                // "%" -> PERCENT, else PCS
                                         amountPtr.longOrThrow(pos),
-                                        valueLocalPtr.apply(pos).flatMap(JsonValue::decimal)
-                                                .orElseGet(() -> {                                             // default: valueRef when ccy == refCcy
-                                                    if (Currency.getInstance(ccyPtr.stringOrThrow(pos))
-                                                            .equals(Currency.getInstance(refCcyPtr.stringOrThrow(pf)))) {
-                                                        return valueRefPtr.decimalOrThrow(pos);
-                                                    }
-                                                    throw new NoSuchElementException(
-                                                            "valueLocal missing for " + isinPtr.stringOrThrow(pos));
-                                                }),
+                                        valueLocalPtr.decimalValue(pos)                                       // default: valueRef when ccy == refCcy
+                                                .or(() -> ccyPtr.stringOrThrow(pos).equals(refCcyPtr.stringOrThrow(pf))
+                                                        ? valueRefPtr.decimalValue(pos)
+                                                        : Optional.empty())
+                                                .orElseThrow(() -> new NoSuchElementException(
+                                                        "valueLocal missing for " + isinPtr.stringOrThrow(pos))),
                                         valueRefPtr.decimalOrThrow(pos),
                                         percentagePtr.doubleOrThrow(pos)))
                                 .toList()))
